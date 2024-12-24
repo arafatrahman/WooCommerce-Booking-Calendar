@@ -192,32 +192,7 @@ function wcbs_save_booking_date_to_order($item, $cart_item_key, $values, $order)
     }
 }
 
-/**
- * Display booking dates in the order details page.
- */
-add_action('woocommerce_order_item_meta_end', 'wcbs_display_booking_date_order', 10, 4);
-function wcbs_display_booking_date_order($item_id, $item, $order, $plain_text) {
-    $booking_date = wc_get_order_item_meta($item_id, __('WP_Booking_Start Date', 'wc-booking-subscription'));
-    $end_date = wc_get_order_item_meta($item_id, __('WP_Booking_End_Date', 'wc-booking-subscription'));
-    $WP_Promo_Code_Usage_Limit = wc_get_order_item_meta($item_id, __('WP_Promo_Code_Usage_Limit', 'wc-booking-subscription'));
 
-
-    $WP_Promo_Code = wc_get_order_item_meta($item_id, __('WP_Promo_Code', 'wc-booking-subscription'));
-
-
-    if ($booking_date) {
-        echo '<p><strong>' . __('Booking Start Date:', 'wc-booking-subscription') . '</strong> ' . esc_html($booking_date) . '</p>';
-    }
-    if ($end_date) {
-        echo '<p><strong>' . __('Booking End Date:', 'wc-booking-subscription') . '</strong> ' . esc_html($end_date) . '</p>';
-    }
-    if ($WP_Promo_Code_Usage_Limit) {
-        echo '<p><strong>' . __('Promo Code Usage Limit:', 'wc-booking-subscription') . '</strong> ' . esc_html($WP_Promo_Code_Usage_Limit) . '</p>';
-    }
-    if ($WP_Promo_Code) {
-        echo '<p><strong>' . __('Your Promo Code:', 'wc-booking-subscription') . '</strong> ' . esc_html($WP_Promo_Code) . '</p>';
-    }
-}
 add_action('admin_menu', 'wcbs_register_booking_calendar_menu');
 function wcbs_register_booking_calendar_menu() {
     add_menu_page(
@@ -309,55 +284,147 @@ function wcbs_get_bookings_for_calendar() {
 
 
 
-function wcbs_display_promo_code_on_thankyou($thank_you_text, $order) {
-    if (!$order instanceof WC_Order) {
-        return $thank_you_text;
+/**
+ * Replace "Add to Cart" button with "Book Now" for booking-enabled products.
+ */
+add_filter('woocommerce_product_single_add_to_cart_text', 'wcbs_change_add_to_cart_button_text');
+function wcbs_change_add_to_cart_button_text($button_text) {
+    global $product;
+
+    // Check if the booking feature is enabled for this product
+    $is_booking_enabled = get_post_meta($product->get_id(), '_enable_booking_date', true);
+
+    if ('yes' === $is_booking_enabled) {
+        $button_text = __('Book Now', 'wc-booking-subscription');
     }
 
-    // Loop through order items to retrieve promo code details
-    foreach ($order->get_items() as $item_id => $item) {
-        $promo_code = 'BOOKING-' . strtoupper(uniqid()) . '-' . substr($item->get_name(), 0, 3);
+    return $button_text;
+}
 
-        wc_add_order_item_meta($item_id, 'WP_Promo_Code', $promo_code);
-        update_option($item_id.'_WP_Promo_Code', $promo_code);
+/**
+ * Replace the "Add to Cart" button functionality with booking logic.
+ */
+add_action('woocommerce_before_add_to_cart_form', 'wcbs_replace_add_to_cart_button_logic');
+function wcbs_replace_add_to_cart_button_logic() {
+    global $product;
+
+    $is_booking_enabled = get_post_meta($product->get_id(), '_enable_booking_date', true);
+
+    if ('yes' === $is_booking_enabled) {
+        // Remove the default WooCommerce add to cart button
+        remove_action('woocommerce_single_product_summary', 'woocommerce_template_single_add_to_cart', 30);
+
+        // Add custom booking button
+        add_action('woocommerce_single_product_summary', 'wcbs_custom_booking_button', 30);
+    }
+}
+
+/**
+ * Display custom "Book Now" button.
+ */
+function wcbs_custom_booking_button() {
+    global $product;
+
+    $booking_page_url = esc_url(add_query_arg(['product_id' => $product->get_id()], get_permalink())); // Customize the booking page URL if needed
+
+    echo '<a href="' . $booking_page_url . '" class="button wc-book-now-button">' . __('Book Now', 'wc-booking-subscription') . '</a>';
+}
+/**
+ * Replace "Add to Cart" button with "Book Now" button on the shop page.
+ */
+add_filter('woocommerce_loop_add_to_cart_link', 'wcbs_replace_shop_add_to_cart_button', 10, 2);
+function wcbs_replace_shop_add_to_cart_button($button, $product) {
+    // Check if the booking feature is enabled for this product
+    $is_booking_enabled = get_post_meta($product->get_id(), '_enable_booking_date', true);
+
+    if ('yes' === $is_booking_enabled) {
+        $product_url = get_permalink($product->get_id()); // Get single product page URL
+        $button = '<a href="' . esc_url($product_url) . '" class="button wc-book-now-button">' . __('Book Now', 'wc-booking-subscription') . '</a>';
     }
 
-
-    return $thank_you_text;
+    return $button;
 }
 
-function generate_woocommerce_promo_code() {
-    // Define the coupon details
-    $coupon_code = 'DISCOUNT2024'; // Coupon code (this can be generated dynamically)
-    $discount_type = 'percent'; // Type of discount: 'fixed_cart', 'percent', 'fixed_product', 'percent_product'
-    $coupon_amount = 20; // Discount amount (e.g., 20% off)
-    $individual_use = true; // Set to true if the coupon cannot be used with other coupons
-    $exclude_sale_items = false; // Set to true if you want to exclude sale items
-    $minimum_spend = 50; // Minimum spend requirement for the coupon to be applied
-    $maximum_spend = 500; // Maximum spend allowed for the coupon to be applied
-    $expiry_date = '2024-12-31'; // Expiry date in Y-m-d format
 
-    // Create the coupon
-    $coupon = new WC_Coupon();
-    $coupon->set_code($coupon_code); // Coupon code
-    $coupon->set_discount_type($discount_type); // Discount type
-    $coupon->set_amount($coupon_amount); // Discount amount
-    $coupon->set_individual_use($individual_use); // If the coupon can be used with other coupons
-    $coupon->set_exclude_sale_items($exclude_sale_items); // Whether sale items are excluded
-    $coupon->set_minimum_amount($minimum_spend); // Minimum spend
-    $coupon->set_maximum_amount($maximum_spend); // Maximum spend
-    $coupon->set_date_expires(strtotime($expiry_date)); // Expiry date
-    
-    // Save the coupon
-    $coupon->save();
 
-    // Return the coupon code
-    return $coupon_code;
+
+/**
+ * Helper function to calculate the coupon expiration date based on the product's expiry duration setting.
+ *
+ * @param string $expiry_duration The expiry duration ('4_weeks', '6_months', '1_year', 'unlimited').
+ * @return string Expiration date in 'Y-m-d' format or null for unlimited.
+ */
+function calculate_expiry_date($expiry_duration) {
+    $current_date = current_time('Y-m-d');
+    switch ($expiry_duration) {
+        case '4_weeks':
+            return date('Y-m-d', strtotime($current_date . ' +4 weeks'));
+        case '6_months':
+            return date('Y-m-d', strtotime($current_date . ' +6 months'));
+        case '1_year':
+            return date('Y-m-d', strtotime($current_date . ' +1 year'));
+        case 'unlimited':
+            return null; // No expiration
+        default:
+            return date('Y-m-d', strtotime($current_date . ' +6 months')); // Default to 6 months
+    }
 }
 
-// Call the function to generate the promo code
-//$generated_coupon_code = generate_woocommerce_promo_code();
-//echo 'New promo code generated: ' . $generated_coupon_code;
+
+
+
+/**
+ * Generate coupon and display details in order emails using woocommerce_order_item_meta_end.
+ */
+add_action('woocommerce_order_item_meta_end', 'wcbs_generate_and_display_coupon_details', 10, 4);
+function wcbs_generate_and_display_coupon_details($item_id, $item, $order, $plain_text) {
+    // Check if a coupon code has already been generated for this item
+   
+        $generated_coupon_code = 'BOOKING-' . strtoupper(uniqid()) . '-' . substr($item->get_name(), 0, 3);
+        
+        // Define coupon details
+        $discount_type = 'percent'; // 50% discount
+        $coupon_amount = 50; 
+        $usage_limit = 1; // Single-use by default
+        $expiry_duration = $order->get_meta('_expiry_duration', true); // Fetch expiry duration set for the product
+        
+        // Calculate expiry date based on settings
+        if ($expiry_duration === '4_weeks') {
+            $expiry_date = date('Y-m-d', strtotime('+4 weeks'));
+        } elseif ($expiry_duration === '6_months') {
+            $expiry_date = date('Y-m-d', strtotime('+6 months'));
+        } elseif ($expiry_duration === '1_year') {
+            $expiry_date = date('Y-m-d', strtotime('+1 year'));
+        } else {
+            $expiry_date = null; // Unlimited expiry
+        }
+        
+        // Create the coupon
+        $coupon = new WC_Coupon();
+        $coupon->set_code($generated_coupon_code);
+        $coupon->set_discount_type($discount_type);
+        $coupon->set_amount($coupon_amount);
+        $coupon->set_individual_use(true); // Cannot combine with other coupons
+        $coupon->set_usage_limit($usage_limit); 
+        if ($expiry_date) {
+            $coupon->set_date_expires(strtotime($expiry_date));
+        }
+        $coupon->save();    
+
+    // Display the coupon details in the email
+    if ($generated_coupon_code) {
+        // Fetch expiry date and usage limit
+        $expiry_date = $coupon->get_date_expires() ? date('F j, Y', strtotime($coupon->get_date_expires())) : 'Unlimited';
+        $usage_limit = $coupon->get_usage_limit() ? $coupon->get_usage_limit() : 'No limit';
+
+        echo '<br><strong>Promo Code:</strong> ' . esc_html($generated_coupon_code);
+        echo '<br><strong>Expiry Date:</strong> ' . esc_html($expiry_date);
+        echo '<br><strong>Usage Limit:</strong> ' . esc_html($usage_limit);
+    }
+}
+
+
+
 
 
 
